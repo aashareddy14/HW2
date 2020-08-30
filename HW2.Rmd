@@ -15,6 +15,9 @@ Readings: Chapters 3-4, 8-9 and Appendix in Weisberg [Applied Linear Regression]
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(alr3)
+library(GGally)
+library(dplyr)
 ```
 
 This exercise involves the UN data set from `alr3` package. Install `alr3` and the `car` packages and load the data to answer the following questions adding your code in the code chunks.  Please add appropriate code to the chunks to suppress messages and warnings as needed once you are sure the code is working properly and remove instructions if no longer needed. Figures should have informative captions. Please switch the output to pdf for your final version to upload to Sakai. **Remove these instructions for final submission**
@@ -34,8 +37,15 @@ library(car)
 
 1. Create a summary of the data.  How many variables have missing data?  Which are quantitative and which are qualtitative?
 
-```{r}
+6 variables (out of 7) have missing data (ModernC, Change, PPgdp, Frate, Pop, and Fertility). 
 
+All variables are quantitative.
+
+From the help function, we can see that This dataset contains national statistics from the United Nations. This includes National health, welfare, and education statistics for 210 places, mostly UN members, but also other areas like Hong Kong that are not independent countries. Only 125 localities have data present for all the variables. From this we can also see the descriptions of the variables, which confirms the fact that they are all quantitative.
+
+```{r}
+summary(UN3)
+?UN3
 ```
 
 
@@ -43,16 +53,49 @@ library(car)
 highlighting the relationships among the predictors. Comment
 on your findings regarding trying to predict `ModernC` from the other variables.  Are there potential outliers, nonlinear relationships or transformations that appear to be needed based on your graphical EDA?
 
-```{r}
-
+```{r, echo = FALSE}
+ggpairs(UN3) +
+  theme(axis.text.x = element_text(angle = 60, hjust = 1))
 ```
+From this correlation plot we can see some evident relationships between the variables and ModernC. It looks like Fertility has the highest correlation with ModernC (-0.773) with a linear relationship from the plot. The relationship between Purban and ModernC also seems linear with a high positive correlation of 0.567. It looks like ModernC and Change have a linear negative relationship as well with a high correlation of -0.555. 
+
+PPgdp looks like it has a high positive correlation with ModernC (0.552), but the relationship looks like it might need a transformation to create a linear relationship. Frate has a lower correlation with ModernC, but also looks like it would need a transformation to create a linear relationship before modeling. 
+
+Pop has a less obvious relation with ModernC, with relatively low correlations. 
+
+We can see in some of the plots that it looks like there are 2 outliers with respect to population, as the distribution is very right skewed. If we look into this further, we can see that the two outliers are China and India, with very high populations relative to the next three highest populated countries. 
+
+```{r, echo = FALSE}
+UN3 %>%
+  arrange(desc(Pop)) %>%
+  head(5)
+```
+
 
 ## Model Fitting
 
 3.  Use the `lm()` function to perform a multiple linear regression with `ModernC` as the response and all other variables as the predictors, using the formula `ModernC ~ .`, where the `.` includes all remaining variables in the dataframe.  Create  diagnostic residual plot from the linear model object and comment on results regarding assumptions.  How many observations are used in your model fitting?
 
 ```{r}
+un_reg <- lm(ModernC ~., data = UN3)
+summary(un_reg)
+```
+From the residuals vs. fitted plot we can see that residuals seem to have no patterns, so the linearity assumption holds.
 
+However, from the QQ plot we can see that the residuals are relatively normally distributed except at the right tail, where the normal distribution seems to have a heavier right tail.
+
+
+From the scale-location plot, it looks like there is slight fanning of residuals up until the fitted value ~50.
+
+The residuals vs. leverage plot shows that China and India are outliers with high leverage but they do not have Cook's Distance that is very large so they are not influential points. 
+
+From the regression summary, we can see that 85 observations were deleted due to missingness. There are 210 total observations so the model is fitting on 125 observations. 
+
+
+```{r}
+# Diagnostic plots
+par(mfrow = c(2, 2))
+plot()
 ```
 
 4. Examine added variable plots `car::avPlot` or `car::avPlots`  for your model above. Are there any plots that suggest that transformations are needed for any of the terms in the model? Describe. Is it likely that any of the localities are influential for any of the terms?  Which localities?  Which terms?  
