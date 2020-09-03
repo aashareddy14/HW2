@@ -1,6 +1,6 @@
 ---
 title: "HW2 STA521"
-author: '[Your Name Here, netid and github username here]'
+author: 'Aasha Reddy'
 date: "Due September 12, 2019 10am"
 output:
   pdf_document: default
@@ -18,9 +18,10 @@ knitr::opts_chunk$set(echo = TRUE)
 library(alr3)
 library(GGally)
 library(dplyr)
+library(car)
+library(tibble)
+library(knitr)
 ```
-
-This exercise involves the UN data set from `alr3` package. Install `alr3` and the `car` packages and load the data to answer the following questions adding your code in the code chunks.  Please add appropriate code to the chunks to suppress messages and warnings as needed once you are sure the code is working properly and remove instructions if no longer needed. Figures should have informative captions. Please switch the output to pdf for your final version to upload to Sakai. **Remove these instructions for final submission**
 
 
 ## Exploratory Data Analysis
@@ -30,14 +31,13 @@ This exercise involves the UN data set from `alr3` package. Install `alr3` and t
 ```{r data}
 library(alr3)
 data(UN3, package="alr3")
-help(UN3) 
 library(car)
 ```
 
 
 1. Create a summary of the data.  How many variables have missing data?  Which are quantitative and which are qualtitative?
 
-6 variables (out of 7) have missing data (ModernC, Change, PPgdp, Frate, Pop, and Fertility). 
+6 variables (out of 7) have missing data (ModernC, Change, PPgdp, Frate, Pop, and Fertility). The help function for the data states that data were collected from 2000-2003 and missing values in the data generally occur in less-developed countries. 
 
 All variables are quantitative.
 
@@ -53,13 +53,16 @@ summary(UN3)
 highlighting the relationships among the predictors. Comment
 on your findings regarding trying to predict `ModernC` from the other variables.  Are there potential outliers, nonlinear relationships or transformations that appear to be needed based on your graphical EDA?
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, warning = FALSE}
 ggpairs(UN3) +
-  theme(axis.text.x = element_text(angle = 60, hjust = 1))
+  theme(axis.text.x = element_text(angle = 60, hjust = 1)) +
+  labs(title = "Comparison of UN Variables", 
+       caption = "Figure shows correlations between quantitative variables. We see certain predictors will need transfomrations.")
 ```
-From this correlation plot we can see some evident relationships between the variables and ModernC. It looks like Fertility has the highest correlation with ModernC (-0.773) with a linear relationship from the plot. The relationship between Purban and ModernC also seems linear with a high positive correlation of 0.567. It looks like ModernC and Change have a linear negative relationship as well with a high correlation of -0.555. 
 
-PPgdp looks like it has a high positive correlation with ModernC (0.552), but the relationship looks like it might need a transformation to create a linear relationship. Frate has a lower correlation with ModernC, but also looks like it would need a transformation to create a linear relationship before modeling. 
+From this correlation plot we can see some evident relationships between the variables and ModernC. It looks like Fertility has the highest correlation with ModernC (-0.773) with a linear relationship from the plot. The relationship between Purban and ModernC also seems linear with a high positive correlation of 0.567. ModernC and Change have a linear negative relationship as well with a high correlation of -0.555. 
+
+PPgdp appears to have a high positive correlation with ModernC (0.552), but the relationship looks like it might need a transformation to create a linear relationship. Frate has a lower correlation with ModernC, but also looks like it would need a transformation to create a linear relationship before modeling. 
 
 Pop has a less obvious relation with ModernC, with relatively low correlations. 
 
@@ -89,66 +92,199 @@ From the scale-location plot, it looks like there is slight fanning of residuals
 
 The residuals vs. leverage plot shows that China and India are outliers with high leverage but they do not have Cook's Distance that is very large so they are not influential points. 
 
-From the regression summary, we can see that 85 observations were deleted due to missingness. There are 210 total observations so the model is fitting on 125 observations. 
+From the regression summary, we can see that 85 missing observations were deleted. There are 210 total observations so the model is fitting on 125 observations. 
 
 
 ```{r}
 # Diagnostic plots
 par(mfrow = c(2, 2))
-plot()
+plot(un_reg)
 ```
 
 4. Examine added variable plots `car::avPlot` or `car::avPlots`  for your model above. Are there any plots that suggest that transformations are needed for any of the terms in the model? Describe. Is it likely that any of the localities are influential for any of the terms?  Which localities?  Which terms?  
 
-```{r}
+The added variable plots below show a clear need for Pop to be transformed, as most of the points are clustered very far to the left due to the two outliers, India and China. This would suggest a potential log transformation of Pop. PPgdp also looks very slightly clustered to the left, which could be a sign that a transformation is needed. I would look into this further before transforming. 
 
+We can see some influential points with respect to certain terms. For instance, we can see that Cook Islands and Kuwait look influential with respect to "Change". Thailand is influential with respect to "Purban" and a bit influential with respect to "Fertility".  
+
+```{r}
+avPlots(un_reg)
 ```
 
 5.  Using the multivariate BoxCox `car::powerTransform`  find appropriate transformations of the response and predictor variables  for  the linear model.  If any predictors are negative, you may need to transform so that they are non-negative.  Summarize the resulting transformations.
 
-
+First we look to see if there are any negative variables, and we see that "Change" has 22 negative entries. When doing a Box Cox transform, if a variable has negative values, one way to handle this is by adding the minimum value of that variable plus a small amount to all the observations in the variable (this makes all observations positive, and adds the same constant to each observation). We will do that here, and it looks like the smallest value of Change is -1.1. We will add 1.1+0.01 to each observation in Change to make them all positive.  
 ```{r}
+zero = rep(0,7)
+for (i in 1:7){
+  zero[i] <- sum(UN3[,i]<0, na.rm = TRUE)
+}
+print(zero)
+
+UN3 %>% 
+  filter(Change < 0)
+
+change_add <- -1*(min(UN3$Change, na.rm = TRUE)) + 0.01
+
+UN3 <- UN3 %>%
+  rownames_to_column("country") %>%
+  mutate(Change_pos = Change + change_add) %>%
+  column_to_rownames("country")
+
+UN3 %>% 
+  filter(Change_pos < 0)
 
 ```
+
+After ensuring all variables are positive, we can use the multivariate BoxCox method. Based on the below summary, we can see that PPgdp, Pop, and Fertility can use log transformations (the value for Pop is -0.16) which is close to 0, suggesting a log transform still). We do not need to transform ModernC, Frate, Purban, or Change, as their values are 1. 
+
+```{r}
+BC_transform <- powerTransform(UN3 %>% select(-Change), family = 'bcPower')
+summary(BC_transform)
+```
+Now implement the above transformations and look at scatterplots to compare ModernC to transformed variables. From the plot we can see more linear relationships with ModernC among the transformed predictors. 
+
+```{r, echo = FALSE, warning = FALSE}
+UN3_new <- UN3 %>%
+  rownames_to_column("country") %>%
+  mutate(log_PPgdp = log(PPgdp), log_Pop = log(Pop), log_Fertility = log(Fertility)) %>%
+  select(-PPgdp, -Pop, -Fertility) %>%
+  column_to_rownames("country")
+
+
+ggpairs(UN3_new %>%
+          select(ModernC, log_PPgdp, log_Pop, log_Fertility)) +
+  labs(title = "Log Transformed Predictors vs. ModernC", 
+       caption = "Figure shows correlations between transformed variables. We see relationships are more linear now.")
+```
+
+Power transformation for ModernC below shows ~0.92, which is close enough to 1 to not warrant any transformation. 
+
+```{r}
+powerTransform(lm(ModernC ~., data = UN3_new))
+```
+
 
 6. Given the selected transformations of the predictors, verify the transformation of the response using `MASS::boxcox` or `car::boxCox` and justify.  Do you get the same transformation if you used `car::powerTransform` above? Do you get the same transformation for the response if you do not transform any of the predictors?  Discuss briefly the findings.
 
+Check car:boxcox for the transformed predictors. This shows a $\lambda$ value of 0.909, very close to 0.92 above. The plot also shows that the 95% confidence interval contains 1. 
 
 ```{r}
+bc <- car::boxCox(lm(ModernC ~., data = UN3_new))
+bc$x[which.max(bc$y)]
+```
+If we use the untransfomred predictors. In this case the $\lambda$ value is 0.789, which is not as close to 0.92.In this case, we will transform ModernC because 1 is contained in the 95% confidence interval shown on the plot. 
+
+```{r}
+bc_2 <- car::boxCox(un_reg)
+bc_2$x[which.max(bc_2$y)]
 
 ```
+
+
+
 
 7.  Fit the regression using the transformed variables.  Provide residual plots and added variables plots and comment.  If you feel that you need additional transformations of either the response or predictors, repeat any steps until you feel satisfied with the model and residuals.
 
-```{r}
+The residuals vs. fitted plot looks satisfactory, as there are no patterns in the residuals and they are evenly scattered around 0, and not clustered at a specific location. This suggests that the linearity assumption is met. The scale-location plot looks better than before, and there is no fanning of residuals, suggesting constant variance. The residuals-vs. leverage plot does not show any very influential points. The QQ plot does look slightly worse than the original model with residuals having lighter tails than the normal distribution but not enough to be of concern. 
 
+
+```{r}
+un_reg2 <- lm(ModernC ~ log_PPgdp + log_Pop + Frate + log_Fertility + Change +
+                Purban, data = UN3_new)
+summary(un_reg2)
+
+par(mfrow = c(2,2))
+plot(un_reg2)
 ```
 
 
-8.  Are there any outliers or influential points in the data?  Explain.  If so, refit the model after removing any outliers/influential points and comment on residual plots.
 
+The added variable plots for Pop and PPgdp look much better than in the first model, as points are no longer clumped. The plots also show that all relationships look linear after the transformations. The slopes for some plots, for instance Change and Purban do look relatively flat, suggesting that maybe these variables are related to ModernC in a smaller way than the other variables. However, these variables would still be good to include in the final model. We also see evidence of constant variance, with the residuals showing no pattern around the slope lines. 
 
 ```{r}
+avPlots(un_reg2)
+```
 
+8.  Are there any outliers or influential points in the data?  Explain.  If so, refit the model after removing any outliers/influential points and comment on residual plots.
+
+There are no points with a Cook's distance larger than one, as the highest cooks distance is ~0.13 (<< 1). We can see that this point is Cook's Island. 
+
+```{r}
+cd <- cooks.distance(un_reg2)
+max(cd)
+which.max(cd)
+```
+The other metric we can examine are points with Cook's distance > 4/n, or 4/125 in this case. This is a much lower threshold than Cook's distance > 1, and we can see that results are very different. We see 6 locales with a Cook's distance > 4/125. However, this is not concerning, because if we go back to the AV plots, these points do not look too far away from the cluster of other points. Thus, we will classify then as non-influential points.  
+
+```{r}
+cd[cd > (4/125)]
+```
+
+We can also look at the studentized residuals. It looks like there are no studentized residuals with Bonferroni p < 0.05, but Poland does have a large rstudent residual. This point is not concerning however because the Bonferroni p is not significant (at 0.45), meaning it is not a significant distance. Thus, we will classify it as a non-influential outlier and will keep it in our final model. 
+
+```{r}
+outlierTest(un_reg2)
 ```
 
 ## Summary of Results
 
 9. For your final model, provide summaries of coefficients with 95% confidence intervals in a nice table with interpretations of each coefficient.  These should be in terms of the original units! 
 
+Based on the above exploratory data analysis, we will use un_reg2, which corresponds to the following model: 
+
+$$
+Y_{i} = \beta_{0} + \beta_{1}log(PPgdp) + \beta_{2}log(Pop) + \beta_{3}Frate + \beta_{4}log(Fertility) + \beta_{5}Change + \beta_{6}Purban
+$$
+
+Summary of Coefficients: 
 
 ```{r}
+estimate <- un_reg2$coefficients
+CI <- confint(un_reg2)
+kable(cbind(estimate, CI), digits = 3)
 
 ```
+
+Interpretation: 
+
+Note that a percentage point increase is different than a percent increase, noted below. A percentage point increase refers to an absolute move in unit percentage points (ex: a 40% to 44% is a 4 percentage point increase). However, a percent increase refers to a relative increase in what is being measured (ex: 10% increase in GDP is relative to the previous amount of GDP).
+
+PPgdp: For a 10% increase in per-capital GDP, we expect that the percent of unmarried women using a modern method of contraception would increase by 6.446*log(1.10) = 0.614 units (percentage points). 
+
+Population: For a 10% increase in population (thousands), we expect that the percent of unmarried women using a modern method of contraception would increase by 1.596*log(1.10) = 0.512 units, so 0.512 x 1000 = 512 people. 
+
+Frate: For a 10 unit (percentage point) increase in the percent of females over the age of 15 economically active, we expect that the percent of unmarried women using a modern method of contraception would increase by 0.178*10 = 1.78 percentage points. 
+
+Fertility: For a 10% increase in the expected number of live births per female in 2000, we expect the percent of unmarried women using a modern method of contraception would decrease by -18.238*log(1.10) = 1.738 percentage points. 
+
+Change: For a 1 unit (percentage point) increase in the annual population growth rate, we expect that the percent of unmarried women using a modern method of contraception would increase by 2.310 percentage points. 
+
+Purban: For a 10 unit (percentage point) increase in the percent of population that is urban in 2001, we expect the percent of unmarried women using a moden method of contraception to decrease by 10*(-0.007) = 0.07 percentage points. 
+
+Intercept: The intercept in the model does not provide useful information.
 
 
 10. Provide a paragraph summarizing your final model  and findings suitable for the US envoy to the UN after adjusting for outliers or influential points.   You should provide a justification for any case deletions in your final model.
 
 
+Summary of model output: 
+
 ```{r}
-
+summary(un_reg2)
 ```
+As noted above, the final model is: 
 
+Based on the above exploratory data analysis, we will use un_reg2, which corresponds to the following model: 
+
+$$
+Y_{i} = -15.11 + 6.45log(PPgdp) + 1.60log(Pop) + 0.18Frate + -18.24log(Fertility) + 2.31Change + -0.01Purban
+$$
+Our model maps an association between various economic indicator variables indicated above, and our outcome variable, the percent of unmarried women in a country using a modern method of contraception (ModernC). The final model chosen is a linear regression model with log transforms on Population, Per Capita GDP, and Fertility variables to meet linear regression model assumptions. 
+
+We find that log of Per capita GDP (Log PPgdp) is a strongly significant predictor of the percent of unmarried women using a modern method of contraception. As noted above, this is a positive association in that as the log of per capita GDP increases, the outcome will also increase. We also find that log of expected number of live births per female in 2000 (Log Fertility) is a significant predictor of the outcome, though is relationship is a strong negative association. Both Log of Population in thousands (Log Pop) and the percent of females over the age of 15 economically active (Frate) are postively associated with the outcome, though they are less significant than the other two variables noted. Our model suggests that the annual population growth rate (Change) and the percent of the population that is urban in 2001 (Purban) are not significant predictors of our outcome. 
+
+In terms of case deletions, we did not remove any points on the basis of points being outliers or influential. However, the final model uses 125 out of 210 observations, with 85 observations removed due to missing values. From the dataset help function, we know that missing values in the data file indicated values for which no data was available, and generally occurred in less developed localities. This means that data is not missing at random, countries that are less developed are more likely to have missing values, and are thus more likely to be left out of our model. This is something we should take into account when using this model to make policy decisions or predictions about our outcome for other countries. 
 
 ## Methodology
 
@@ -164,7 +300,56 @@ $$
 
 where $h_{ii}$ is the $i$th diagonal element of $H = X(X^TX)^{-1}X^T$ using direct multiplication and simplify in terms of_ $h_{ii}$.
 
+Answer: 
+
+First, we know that $h_{ii} = x_{i}^{T}(X^{T}X)^{-1}x_{i}$. This is because $h_{ii}$ is by definition the diagonal element of $$H=X(X^{T}X)^{-1}X^{T} = \begin{bmatrix}x_1^T\\x_2^T\\\vdots\\x_n^T\end{bmatrix}(X^TX)^{-1}\begin{bmatrix} x_1 & x_2 & \dots & x_n \end{bmatrix}$$
+
+And the diagonal element is $x_{i}^{T}(X^{T}X)^{-1}x_{i} = h_{ii}$
+
+We are also given that  $X^TX = X^T_{(i)}X_{(i)} + x_i x_i^T$, so $X^T_{(i)}X_{(i)} = X^TX-x_i x_i^T$
+
+We then start with the equation below, and notice that we can multiply on the left side by $X^T_{(i)}X_{(i)}$ and on the right side by $X^TX-x_i x_i^T$:
+
+$$
+\begin{aligned}
+(X^T_{(i)}X_{(i)})^{-1} &= (X^TX)^{-1} + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}\\
+(X^T_{(i)}X_{(i)})^{-1}(X^T_{(i)}X_{(i)}) &= \left((X^TX)^{-1} + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}\right)(X^TX-x_i x_i^T)\\
+I &= (X^TX)^{-1}(X^TX-x_i x_i^T) + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}(X^TX-x_i x_i^T)\\
+I &= (X^TX)^{-1}(X^TX) - (X^TX)^{-1}(x_i x_i^T) + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}(X^TX-x_i x_i^T)}{1 - h_{ii}}\\
+I &= I - (X^TX)^{-1}(x_i x_i^T) + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}(X^TX)}{1 - h_{ii}} - \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}(x_i x_i^T)}{1 - h_{ii}}\\
+I &= I - (X^TX)^{-1}(x_i x_i^T) + \frac{(X^TX)^{-1}x_ix_i^T }{1 - h_{ii}} - \frac{(X^TX)^{-1}x_ih_{ii}x_i^T}{1 - h_{ii}}\\
+I &= I - (X^TX)^{-1}(x_i x_i^T)\left(1 - \frac{1}{1-h_{ii}} +\frac{h_{ii}}{1-h_{ii}}\right)\\
+I &= I - (X^TX)^{-1}(x_i x_i^T)\left( \frac{1- h_{ii} - 1 + h_{ii}}{1-h_{ii}} \right)\\ 
+&=I
+\end{aligned}
+$$
+
 12. Exercise 9.13 from ALR.   Using the above, show
 
 $$\hat{\beta}_{(i)} = \hat{\beta} -  \frac{(X^TX)^{-1}x_i e_i}{1 - h_{ii}}$$
+
+We know by definition that $\hat{\beta} = (X^{T}X)^{-1}X^{T}Y$. We thus have that: 
+
+$$
+\begin{aligned}
+\hat{\beta_{(i)}} &= (X^T_{(i)}X_{(i)})^{-1}(X^T_{(i)}Y_{(i)}) = \left((X^TX)^{-1} + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}\right)(X^T_{(i)}Y_{(i)})
+\end{aligned}
+$$
+We also know that $X^{T}Y = X^{T}_{(i)}Y_{(i)} + x_{i}y_{i}$, so $X^{T}_{(i)}Y_{(i)}=X^{T}Y - x_{i}y_{i}$. Continuing from above, we then have: 
+
+$$
+\begin{aligned}
+\hat{\beta_{(i)}} = (X^T_{(i)}X_{(i)})^{-1}(X^T_{(i)}Y_{(i)}) &= \left((X^TX)^{-1} + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}\right)(X^T_{(i)}Y_{(i)})\\
+&= \left((X^TX)^{-1} + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}\right)(X^{T}Y - x_{i}y_{i})\\
+&= (X^TX)^{-1}(X^{T}Y - x_{i}y_{i}) + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}}{1 - h_{ii}}(X^{T}Y - x_{i}y_{i})\\
+&= (X^TX)^{-1}(X^{T}Y) - (X^TX)^{-1}(x_{i}y_{i}) + \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}(X^{T}Y)}{1 - h_{ii}} \\
+& \;\;\;\;\;\;\;\;\;\;\;\;- \frac{(X^TX)^{-1}x_ix_i^T  (X^TX)^{-1}x_{i}y_{i}}{1 - h_{ii}}\\
+&= \hat{\beta} - \frac{(X^TX)^{-1}(x_{i}y_{i})(1-h_{ii})}{1-h_{ii}} + \frac{(X^TX)^{-1}x_ix_i^{T}\hat{\beta}}{1 - h_{ii}} - \frac{(X^TX)^{-1}x_i h_{ii}y_{i}}{1 - h_{ii}}\\
+&= \hat{\beta}  + \frac{(X^TX)^{-1}x_i}{1 - h_{ii}}\left(-y_{i}(1-h_{ii})+ x_{i}^{T}\hat{\beta} - h_{ii}y_{i} \right)\\
+&= \hat{\beta}  + \frac{(X^TX)^{-1}x_i}{1 - h_{ii}}\left(-y_{i} + y_{i}h_{ii} + \hat{y}_{i} - h_{ii}y_{i}  \right)\\
+&= \hat{\beta}  + \frac{(X^TX)^{-1}x_i}{1 - h_{ii}}\left(-y_{i} + \hat{y}_{i} \right)\\
+&= \hat{\beta}  + \frac{(X^TX)^{-1}x_i}{1 - h_{ii}}e_{i}\\
+\end{aligned}
+$$
+
 13. (optional)  Prove that the intercept in the added variable scatter plot will always be zero.  _Hint:  use the fact that if $H$ is the projection matrix for $X$ which contains a column of ones, then $1_n^T (I - H) = 0$ or $(I - H) 1_n = 0$.  Use this to show that the sample mean of residuals will always be zero if there is an intercept._
